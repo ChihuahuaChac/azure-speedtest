@@ -1,9 +1,9 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
 
 :: ================================================================
-:: Azure Blob Download Speed Test (Windows + azcopy)
-:: All logic runs in PowerShell to avoid cmd % expansion issues
+:: Azure Blob Download Speed Test (Windows + azcopy) - Single File
+:: Downloads azcopy + runner script, then executes
 :: Usage: speedtest_azcopy.bat [runs]
 :: ================================================================
 
@@ -14,18 +14,19 @@ set "SCRIPTDIR=%~dp0"
 set "AZCOPY_DIR=%SCRIPTDIR%azcopy"
 set "AZCOPY_EXE=%AZCOPY_DIR%\azcopy.exe"
 set "TMPDIR=%TEMP%\azspeedtest"
+set "RUNNER=%TMPDIR%\speedtest_runner.ps1"
 
 if exist "%TMPDIR%" rmdir /s /q "%TMPDIR%"
 mkdir "%TMPDIR%"
 
 :: --- Download azcopy if not found ---
-if exist "%AZCOPY_EXE%" goto :run_test
+if exist "%AZCOPY_EXE%" goto :have_azcopy
 
 echo [INFO] azcopy not found, downloading...
 set "AZCOPY_ZIP=%TMPDIR%\azcopy.zip"
 curl -L -o "%AZCOPY_ZIP%" "https://aka.ms/downloadazcopy-v10-windows"
 if errorlevel 1 (
-    echo [ERROR] Failed to download azcopy.
+    echo [ERROR] Failed to download azcopy. Try: winget install Microsoft.AzCopy
     exit /b 1
 )
 mkdir "%AZCOPY_DIR%" 2>nul
@@ -39,8 +40,17 @@ if not exist "%AZCOPY_EXE%" (
 )
 echo [OK] azcopy installed: %AZCOPY_EXE%
 
-:run_test
-:: --- Execute test via PowerShell (avoids all cmd escaping issues) ---
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$runs=%RUNS%; $azcopy='%AZCOPY_EXE%'; $scriptDir='%SCRIPTDIR%'; & '%SCRIPTDIR%speedtest_runner.ps1' -Runs $runs -AzCopyExe $azcopy -ScriptDir $scriptDir"
+:have_azcopy
+:: --- Download runner ps1 and execute ---
+echo [INFO] Downloading test runner...
+powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ChihuahuaChac/azure-speedtest/main/speedtest_runner.ps1' -OutFile '%RUNNER%' -UseBasicParsing"
+if not exist "%RUNNER%" (
+    echo [ERROR] Failed to download speedtest_runner.ps1
+    exit /b 1
+)
 
+:: --- Run ---
+powershell -NoProfile -ExecutionPolicy Bypass -File "%RUNNER%" -Runs %RUNS% -AzCopyExe "%AZCOPY_EXE%" -ScriptDir "%SCRIPTDIR%"
+
+:: --- Cleanup ---
 rmdir /s /q "%TMPDIR%" 2>nul
