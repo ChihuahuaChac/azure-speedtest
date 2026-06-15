@@ -13,6 +13,10 @@ setlocal enabledelayedexpansion
 set RUNS=%1
 if "%RUNS%"=="" set RUNS=3
 
+:: --- Timestamp (powershell, works on all Windows 10/11) ---
+for /f "tokens=*" %%d in ('powershell -NoProfile -Command "Get-Date -Format 'yyyyMMdd_HHmmss'"') do set "TIMESTAMP=%%d"
+for /f "tokens=*" %%d in ('powershell -NoProfile -Command "Get-Date -Format 'yyyy-MM-dd HH:mm:ss'"') do set "DATETIME=%%d"
+
 :: --- SAS URLs (valid until 2027-06-10) ---
 set "US_100M=https://jessclawscus.blob.core.windows.net/speedtest/100M.bin?se=2027-06-10T08%%3A22Z&sp=r&spr=https&sv=2026-04-06&sr=b&sig=kBZI7oM5aRX0zoswSAXOoJG615yV%%2FoCSWcHrdBq9eCg%%3D"
 set "US_500M=https://jessclawscus.blob.core.windows.net/speedtest/500M.bin?se=2027-06-10T08%%3A22Z&sp=r&spr=https&sv=2026-04-06&sr=b&sig=Vg8Gg3r8TUkC1317Q9SRIsnss%%2Bu%%2FXu4zL2LxLLogRIc%%3D"
@@ -23,18 +27,17 @@ set "MX_500M=https://jessclawmx.blob.core.windows.net/speedtest/500M.bin?se=2027
 set "SCRIPTDIR=%~dp0"
 set "AZCOPY_DIR=%SCRIPTDIR%azcopy"
 set "AZCOPY_EXE=%AZCOPY_DIR%\azcopy.exe"
-set "TMPDIR=%TEMP%\azspeedtest_%RANDOM%"
-mkdir "%TMPDIR%" 2>nul
+set "TMPDIR=%TEMP%\azspeedtest"
+if exist "%TMPDIR%" rmdir /s /q "%TMPDIR%"
+mkdir "%TMPDIR%"
 
-:: --- Timestamp for result file ---
-for /f "tokens=2 delims==" %%a in ('wmic os get localdatetime /value') do set "DT=%%a"
-set "TIMESTAMP=%DT:~0,8%_%DT:~8,6%"
+:: --- Result file ---
 set "RESULT=%SCRIPTDIR%speedtest_%TIMESTAMP%.txt"
 
 echo.
 echo ================================================================
 echo   Azure Blob Download Speed Test (azcopy)
-echo   Date: %DT:~0,4%-%DT:~4,2%-%DT:~6,2% %DT:~8,2%:%DT:~10,2%:%DT:~12,2%
+echo   Date: %DATETIME%
 echo   Host: %COMPUTERNAME%
 echo   Runs: %RUNS% per endpoint
 echo   Results: %RESULT%
@@ -44,45 +47,48 @@ echo.
 :: --- Check / Download azcopy ---
 if exist "%AZCOPY_EXE%" (
     echo [OK] azcopy found: %AZCOPY_EXE%
-) else (
-    echo [INFO] azcopy not found, downloading...
-    echo.
-
-    set "AZCOPY_URL=https://aka.ms/downloadazcopy-v10-windows"
-    set "AZCOPY_ZIP=%TEMP%\azcopy.zip"
-
-    :: Download
-    curl -sL -o "%AZCOPY_ZIP%" "%AZCOPY_URL%"
-    if errorlevel 1 (
-        echo [ERROR] Failed to download azcopy. Check network.
-        exit /b 1
-    )
-
-    :: Extract
-    mkdir "%AZCOPY_DIR%" 2>nul
-    powershell -NoProfile -Command "Expand-Archive -Path '%AZCOPY_ZIP%' -DestinationPath '%TEMP%\azcopy_extract' -Force"
-    if errorlevel 1 (
-        echo [ERROR] Failed to extract azcopy zip.
-        exit /b 1
-    )
-
-    :: Find azcopy.exe in extracted folder (nested in version subfolder)
-    for /r "%TEMP%\azcopy_extract" %%f in (azcopy.exe) do (
-        copy "%%f" "%AZCOPY_EXE%" >nul
-    )
-
-    :: Cleanup
-    del "%AZCOPY_ZIP%" 2>nul
-    rmdir /s /q "%TEMP%\azcopy_extract" 2>nul
-
-    if not exist "%AZCOPY_EXE%" (
-        echo [ERROR] Could not find azcopy.exe after extraction.
-        exit /b 1
-    )
-    echo [OK] azcopy installed to: %AZCOPY_EXE%
+    goto :azcopy_ready
 )
 
+echo [INFO] azcopy not found, downloading...
+echo.
+
+set "AZCOPY_ZIP=%TMPDIR%\azcopy.zip"
+
+:: Download using curl
+curl -L -o "%AZCOPY_ZIP%" "https://aka.ms/downloadazcopy-v10-windows"
+if errorlevel 1 (
+    echo [ERROR] Failed to download azcopy. Check network.
+    exit /b 1
+)
+
+:: Extract using powershell
+mkdir "%AZCOPY_DIR%" 2>nul
+powershell -NoProfile -Command "Expand-Archive -Path '%AZCOPY_ZIP%' -DestinationPath '%TMPDIR%\azcopy_extract' -Force"
+if errorlevel 1 (
+    echo [ERROR] Failed to extract azcopy zip.
+    exit /b 1
+)
+
+:: Find azcopy.exe (nested in version subfolder)
+for /r "%TMPDIR%\azcopy_extract" %%f in (azcopy.exe) do (
+    copy "%%f" "%AZCOPY_EXE%" >nul
+)
+
+:: Cleanup zip
+del "%AZCOPY_ZIP%" 2>nul
+rmdir /s /q "%TMPDIR%\azcopy_extract" 2>nul
+
+if not exist "%AZCOPY_EXE%" (
+    echo [ERROR] Could not find azcopy.exe after extraction.
+    exit /b 1
+)
+echo [OK] azcopy installed to: %AZCOPY_EXE%
+
+:azcopy_ready
+
 :: --- Show azcopy version ---
+set "AZCOPY_VER="
 for /f "tokens=*" %%v in ('"%AZCOPY_EXE%" --version 2^>^&1') do set "AZCOPY_VER=%%v"
 echo      %AZCOPY_VER%
 echo.
@@ -91,7 +97,7 @@ echo.
 (
 echo ================================================================
 echo  Azure Blob Download Speed Test [azcopy]
-echo  Date: %DT:~0,4%-%DT:~4,2%-%DT:~6,2% %DT:~8,2%:%DT:~10,2%:%DT:~12,2%
+echo  Date: %DATETIME%
 echo  Host: %COMPUTERNAME%
 echo  azcopy: %AZCOPY_VER%
 echo  Runs: %RUNS% per endpoint
@@ -100,15 +106,23 @@ echo.
 ) > "%RESULT%"
 
 :: --- Run tests ---
-call :region "US South Central [Texas]"
+echo.
+echo ---- US South Central [Texas] ----
+echo.>> "%RESULT%"
+echo ---- US South Central [Texas] ---->> "%RESULT%"
+echo.>> "%RESULT%"
 call :runtest "US-100MB" 100 "%US_100M%"
 call :runtest "US-500MB" 500 "%US_500M%"
 
-call :region "Mexico Central [Queretaro]"
+echo.
+echo ---- Mexico Central [Queretaro] ----
+echo.>> "%RESULT%"
+echo ---- Mexico Central [Queretaro] ---->> "%RESULT%"
+echo.>> "%RESULT%"
 call :runtest "MX-100MB" 100 "%MX_100M%"
 call :runtest "MX-500MB" 500 "%MX_500M%"
 
-:: --- Cleanup ---
+:: --- Cleanup temp ---
 rmdir /s /q "%TMPDIR%" 2>nul
 
 :: --- Done ---
@@ -123,76 +137,66 @@ type "%RESULT%"
 goto :eof
 
 :: ===============================================================
-:region
-echo.
-echo ---- %~1 ----
-echo.>> "%RESULT%"
-echo ---- %~1 ---->> "%RESULT%"
-echo.>> "%RESULT%"
-goto :eof
-
-:: ===============================================================
 :runtest
 set "LABEL=%~1"
 set "SIZEMB=%~2"
 set "URL=%~3"
 
+echo.
 echo   [%LABEL%] (%SIZEMB% MB)
 echo   [%LABEL%] (%SIZEMB% MB)>> "%RESULT%"
 
-set "SUM_MBPS=0"
-set "BEST_MBPS=0"
-
 for /L %%i in (1,1,%RUNS%) do (
     set "DEST=%TMPDIR%\test_%%i.bin"
+    set "LOGFILE=%TMPDIR%\azcopy_log_%%i.txt"
 
     echo     Run %%i ...
 
-    :: Run azcopy, capture output to temp log
-    set "LOGFILE=%TMPDIR%\azcopy_log_%%i.txt"
-    "%AZCOPY_EXE%" copy "%URL%" "!DEST!" --output-type text --log-level NONE --cap-mbps 0 > "!LOGFILE!" 2>&1
+    :: Run azcopy copy
+    "%AZCOPY_EXE%" copy "%URL%" "!DEST!" --output-type text --log-level NONE > "!LOGFILE!" 2>&1
 
-    :: Extract throughput from azcopy output
-    set "THROUGHPUT=0"
-    set "ELAPSED=0"
-    for /f "tokens=2 delims=:" %%t in ('findstr /i "Elapsed Time" "!LOGFILE!"') do (
-        set "ELAPSED=%%t"
+    :: Parse throughput from azcopy summary output
+    set "MBPS="
+    set "ELAPSED="
+    set "BYTES="
+
+    for /f "tokens=*" %%L in ('findstr /i "Throughput" "!LOGFILE!" 2^>nul') do (
+        :: Line looks like: "Throughput (Mb/s): 123.45"
+        for /f "tokens=4 delims= " %%n in ("%%L") do set "MBPS=%%n"
     )
-    for /f "tokens=*" %%t in ('findstr /i "Throughput" "!LOGFILE!"') do (
-        set "TPLINE=%%t"
+    for /f "tokens=*" %%L in ('findstr /i "Elapsed Time" "!LOGFILE!" 2^>nul') do (
+        for /f "tokens=4-99 delims= " %%a in ("%%L") do set "ELAPSED=%%a %%b"
+    )
+    for /f "tokens=*" %%L in ('findstr /i "TotalBytesTransferred" "!LOGFILE!" 2^>nul') do (
+        for /f "tokens=2 delims=:" %%b in ("%%L") do set "BYTES=%%b"
     )
 
-    :: Parse throughput line: "TotalBytesTransferred: xxx; Throughput (Mb/s): yyy"
-    set "MBPS=N/A"
-    for /f "tokens=2 delims=:" %%m in ('echo !TPLINE! ^| findstr /i "Mb/s"') do (
-        for /f "tokens=1" %%n in ("%%m") do set "MBPS=%%n"
+    :: Verify file size
+    set "DLSIZE=0"
+    if exist "!DEST!" (
+        for /f %%s in ('powershell -NoProfile -Command "[math]::Round((Get-Item '!DEST!').Length/1MB,1)"') do set "DLSIZE=%%s"
     )
 
-    :: If azcopy didn't report throughput, calculate from file size and elapsed
-    if "!MBPS!"=="N/A" (
-        :: Fallback: measure with powershell
-        for /f %%s in ('powershell -NoProfile -Command "$f='!DEST!'; if(Test-Path $f){(Get-Item $f).Length}else{0}"') do set "FSIZE=%%s"
-        if "!FSIZE!" GEQ "1000000" (
-            for /f %%c in ('powershell -NoProfile -Command "[math]::Round(!SIZEMB! * 8 / 10, 2)"') do set "MBPS=%%c"
+    :: If azcopy didn't output throughput, calculate manually
+    if "!MBPS!"=="" (
+        if !DLSIZE! GTR 0 (
+            for /f %%c in ('powershell -NoProfile -Command "$sw=[IO.File]::GetLastWriteTime('!LOGFILE!')-[IO.File]::GetCreationTime('!LOGFILE!'); if($sw.TotalSeconds -gt 0){[math]::Round(!SIZEMB!*8/$sw.TotalSeconds,2)}else{'N/A'}"') do set "MBPS=%%c"
+        ) else (
+            set "MBPS=FAILED"
         )
     )
 
-    :: Get actual file size for verification
-    set "DLSIZE=0"
-    for /f %%s in ('powershell -NoProfile -Command "$f='!DEST!'; if(Test-Path $f){[math]::Round((Get-Item $f).Length/1MB,1)}else{0}"') do set "DLSIZE=%%s"
-
-    set "LINE=   Run %%i: !MBPS! Mb/s | Downloaded: !DLSIZE! MB | Elapsed:!ELAPSED!"
+    set "LINE=   Run %%i: !MBPS! Mb/s | Downloaded: !DLSIZE! MB | Elapsed: !ELAPSED!"
     echo !LINE!
     echo !LINE!>> "%RESULT%"
 
-    :: Cleanup downloaded file between runs
+    :: Cleanup between runs
     del "!DEST!" 2>nul
     del "!LOGFILE!" 2>nul
 
-    :: Brief pause between runs
+    :: Brief pause
     if %%i LSS %RUNS% timeout /t 2 /nobreak >nul
 )
 
 echo.>> "%RESULT%"
-echo.
 goto :eof
