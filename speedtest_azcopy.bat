@@ -49,8 +49,9 @@ if not exist "%RUNNER%" (
     exit /b 1
 )
 
-:: --- Run ---
-powershell -NoProfile -ExecutionPolicy Bypass -File "%RUNNER%" -Runs %RUNS% -AzCopyExe "%AZCOPY_EXE%" -ScriptDir "%SCRIPTDIR%"
+:: --- Run (use . to mean current dir if SCRIPTDIR has trailing backslash issues) ---
+set "SCRIPTDIR_CLEAN=%SCRIPTDIR:~0,-1%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%RUNNER%" -Runs %RUNS% -AzCopyExe "%AZCOPY_EXE%" -ScriptDir "%SCRIPTDIR_CLEAN%"
 
 :: --- Cleanup ---
 rmdir /s /q "%TMPDIR%" 2>nul
