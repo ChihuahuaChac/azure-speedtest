@@ -4,17 +4,22 @@ param(
     [string]$ScriptDir
 )
 
-if (-not $ScriptDir) { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
-if (-not $ScriptDir) { $ScriptDir = (Get-Location).Path }
-$ScriptDir = $ScriptDir.TrimEnd('\/"')
-if (-not $AzCopyExe) { $AzCopyExe = Join-Path $ScriptDir "azcopy\azcopy.exe" }
+# Always use current working directory for output (avoids path escaping issues from bat)
+$OutDir = (Get-Location).Path
+if (-not $AzCopyExe) {
+    if ($ScriptDir) {
+        $ScriptDir = $ScriptDir -replace '["\s]+$', ''
+        $AzCopyExe = Join-Path $ScriptDir "azcopy\azcopy.exe"
+    } else {
+        $AzCopyExe = Join-Path $OutDir "azcopy\azcopy.exe"
+    }
+}
 
 $TmpDir = Join-Path $env:TEMP "azspeedtest"
 if (-not (Test-Path $TmpDir)) { New-Item -ItemType Directory -Path $TmpDir -Force | Out-Null }
 
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$ResultFile = Join-Path $ScriptDir "speedtest_$Timestamp.txt"
-$ResultFile = [System.IO.Path]::GetFullPath($ResultFile)
+$ResultFile = Join-Path $OutDir "speedtest_$Timestamp.txt"
 
 # URLs - stored here in PowerShell where % is not a special character
 $Endpoints = @(
