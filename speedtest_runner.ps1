@@ -5,6 +5,8 @@ param(
 )
 
 if (-not $ScriptDir) { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $ScriptDir) { $ScriptDir = (Get-Location).Path }
+$ScriptDir = $ScriptDir.TrimEnd('\/"')
 if (-not $AzCopyExe) { $AzCopyExe = Join-Path $ScriptDir "azcopy\azcopy.exe" }
 
 $TmpDir = Join-Path $env:TEMP "azspeedtest"
@@ -12,6 +14,7 @@ if (-not (Test-Path $TmpDir)) { New-Item -ItemType Directory -Path $TmpDir -Forc
 
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $ResultFile = Join-Path $ScriptDir "speedtest_$Timestamp.txt"
+$ResultFile = [System.IO.Path]::GetFullPath($ResultFile)
 
 # URLs - stored here in PowerShell where % is not a special character
 $Endpoints = @(
